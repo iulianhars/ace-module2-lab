@@ -55,37 +55,40 @@ export function getUserProfile () {
       req.app.locals.abused_ssti_bug = true
       const code = username?.substring(2, username.length - 1)
       try {
-        if (!code) {
+        if (!code || code.includes('#{') || code.includes('!{')) {
           throw new Error('Username is null')
         }
-        const singleQuoteRegex = /^'(?:[^'\\]|\\.)*'$/
-        const doubleQuoteRegex = /^"(?:[^"\\]|\\.)*"$/
-        const backtickRegex = /^`(?:[^`\\$]|\\.|\$(?!{))*`$/
-        const numericRegex = /^-?\d+(?:\.\d+)?$/
+        const singleQuoteRegex = /^'(?:[^'\\#!]|\\.|#(?!{)|!(?!{))*'$/
+        const doubleQuoteRegex = /^"(?:[^"\\#!]|\\.|#(?!{)|!(?!{))*"$/
+        const backtickRegex = /^`(?:[^`\\$#!]|\\.|\$(?!{)|#(?!{)|!(?!{))*`$/
+        const arithmeticRegex = /^[\s()+-]*\d[\d\s+\-*/%().]*$/
         const booleanRegex = /^(?:true|false|null|undefined)$/
 
         const isSafe = singleQuoteRegex.test(code) ||
           doubleQuoteRegex.test(code) ||
           backtickRegex.test(code) ||
-          numericRegex.test(code) ||
+          arithmeticRegex.test(code) ||
           booleanRegex.test(code)
 
         if (!isSafe) {
           throw new Error('Unsafe code execution blocked')
         }
         username = eval(code) // eslint-disable-line no-eval
+        if (typeof username === 'string' && (username.includes('#{') || username.includes('!{'))) {
+          throw new Error('Unsafe code execution blocked')
+        }
       } catch (err) {
-        username = '\\' + username
+        username = String(user.username ?? '').replace(/(?<!\\)([#!]{)/g, '\\$1')
       }
     } else {
-      username = '\\' + username
+      username = String(user.username ?? '').replace(/(?<!\\)([#!]{)/g, '\\$1')
     }
 
     const themeKey = config.get<string>('application.theme') as keyof typeof themes
     const theme = themes[themeKey] || themes['bluegrey-lightgreen']
 
     if (username) {
-      template = template.replace(/_username_/g, username)
+      template = template.replace(/_username_/g, () => String(username).replace(/(?<!\\)([#!]{)/g, '\\$1'))
     }
     template = template.replace(/_emailHash_/g, security.hash(user?.email))
     template = template.replace(/_title_/g, entities.encode(config.get<string>('application.name')))
